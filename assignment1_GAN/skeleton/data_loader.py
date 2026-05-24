@@ -40,13 +40,14 @@ def get_data_loader(data_path, opts):
     if opts.data_preprocess == 'resize_only':
         train_transform = basic_transform
     elif opts.data_preprocess == 'vanilla':
-        # TODO 1.1 - add your code here. Below are some ideas for your reference
-        # load_size = int(1.1 * opts.image_size)
-        # osize = [load_size, load_size]
-        # transforms.Resize(osize, Image.BICUBIC)
-        # transforms.RandomCrop(opts.image_size)
-        # transforms.RandomHorizontalFlip()
-        pass
+        load_size = int(1.1 * opts.image_size)
+        train_transform = transforms.Compose([
+            transforms.Resize([load_size, load_size], Image.BICUBIC),
+            transforms.RandomCrop(opts.image_size),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
 
     dataset = CustomDataSet(
         os.path.join('data/', data_path), opts.ext, train_transform

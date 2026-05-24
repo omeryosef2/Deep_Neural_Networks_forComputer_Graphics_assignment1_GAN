@@ -7,11 +7,13 @@
 #   python vanilla_gan.py --data_preprocess vanilla
 
 import argparse
+import copy
 import os
 
 import imageio
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import wandb
 
@@ -40,9 +42,24 @@ def print_models(G, D):
     print(D)
 
 
+def dcgan_weights_init(m):
+    classname = m.__class__.__name__
+    if 'Conv' in classname:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+        if m.bias is not None:
+            nn.init.zeros_(m.bias.data)
+    elif 'BatchNorm' in classname:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.zeros_(m.bias.data)
+
+
 def create_model(opts):
     G = DCGenerator(noise_size=opts.noise_size, conv_dim=opts.conv_dim)
-    D = DCDiscriminator(conv_dim=opts.conv_dim)
+    D = DCDiscriminator(conv_dim=opts.conv_dim, leaky=opts.leaky_d)
+
+    if opts.init_type == 'dcgan':
+        G.apply(dcgan_weights_init)
+        D.apply(dcgan_weights_init)
 
     print_models(G, D)
 
@@ -86,18 +103,31 @@ def to_uint8_grid(images):
     return np.uint8(255 * (grid + 1) / 2)
 
 
-def save_samples(G, fixed_noise, iteration, opts):
+def save_samples(G, fixed_noise, iteration, opts, G_ema=None):
     """Save a grid of generated images to disk and log it to W&B."""
-    generated = G(fixed_noise)
+    G.eval()
+    with torch.no_grad():
+        generated = G(fixed_noise)
+    G.train()
+
     grid = to_uint8_grid(generated)
     path = os.path.join(opts.sample_dir, f'sample-{iteration:06d}.png')
     imageio.imwrite(path, grid)
     print(f'Saved {path}')
 
-    # ------------------------------------------------------------------
-    # TODO 1.6 – log the generated image grid to W&B.
-    # ------------------------------------------------------------------
-    pass
+    log_dict = {'samples': wandb.Image(grid)}
+
+    if G_ema is not None:
+        G_ema.eval()
+        with torch.no_grad():
+            generated_ema = G_ema(fixed_noise)
+        grid_ema = to_uint8_grid(generated_ema)
+        path_ema = os.path.join(opts.sample_dir,
+                                f'sample-{iteration:06d}-ema.png')
+        imageio.imwrite(path_ema, grid_ema)
+        log_dict['samples_ema'] = wandb.Image(grid_ema)
+
+    wandb.log(log_dict, step=iteration)
 
 
 def sample_noise(batch_size, dim):
@@ -114,10 +144,11 @@ def sample_noise(batch_size, dim):
 def prepare_images(images, opts):
     """Prepare images before they are passed to the discriminator.
 
-    TODO 1.5:
-    Complete this function according to the DiffAugment instructions
-    in the assignment.
+    When --use_diffaug is set, apply the differentiable augmentation policy
+    so gradients flow through to the generator (Zhao et al. 2020).
     """
+    if opts.use_diffaug:
+        return DiffAugment(images, policy=policy)
     return images
 
 
@@ -135,10 +166,28 @@ def training_loop(train_dataloader, opts):
 
     fixed_noise = sample_noise(opts.batch_size, opts.noise_size)
 
-    # ------------------------------------------------------------------
-    # TODO 1.6 – initialize a W&B run.
-    # Include the command-line options in the run config.
-    # ------------------------------------------------------------------
+    # EMA generator used only for sampling. Params are excluded from the
+    # optimizer; they are updated manually after each generator step.
+    if opts.ema:
+        G_ema = copy.deepcopy(G)
+        for p in G_ema.parameters():
+            p.requires_grad_(False)
+        G_ema.eval()
+    else:
+        G_ema = None
+
+    run_name = f'{os.path.basename(opts.data)}_{opts.data_preprocess}'
+    if opts.use_diffaug:
+        run_name += '_diffaug'
+    if opts.init_type != 'naive':
+        run_name += f'_{opts.init_type}'
+    if opts.leaky_d:
+        run_name += '_leaky'
+    if opts.ema:
+        run_name += '_ema'
+
+    wandb.init(project='gan-playground-dcgan',
+               name=run_name, config=vars(opts))
 
     iteration = 1
     total_train_iters = opts.num_epochs * len(train_dataloader)
@@ -147,6 +196,7 @@ def training_loop(train_dataloader, opts):
         for batch in train_dataloader:
 
             real_images = utils.to_var(batch)
+            batch_size = real_images.size(0)
 
             # ==============================================================
             # TRAIN THE DISCRIMINATOR
@@ -154,35 +204,20 @@ def training_loop(train_dataloader, opts):
 
             # 1. Discriminator loss on real images: (D(x) - 1)^2
             real_images_processed = prepare_images(real_images, opts)
-
-            # ------------------------------------------------------------------
-            # TODO 1.4 – compute D_real_loss using real_images_processed.
-            # ------------------------------------------------------------------
-            D_real_loss = None  # TODO
+            D_real_loss = ((D(real_images_processed) - 1) ** 2).mean()
 
             # 2. Sample a batch of noise vectors z.
-            # ------------------------------------------------------------------
-            # TODO 1.4 – sample noise.
-            # ------------------------------------------------------------------
-            noise = None  # TODO
+            noise = sample_noise(batch_size, opts.noise_size)
 
             # 3. Generate fake images G(z).
-            # ------------------------------------------------------------------
-            # TODO 1.4 – generate fake_images from the noise.
-            # ------------------------------------------------------------------
-            fake_images = None  # TODO
+            fake_images = G(noise)
 
             # 4. Discriminator loss on fake images: (D(G(z)))^2
             # Note:
             # We detach fake_images so that gradients from the discriminator
             # update do not flow back into the generator parameters.
-
             fake_images_processed = prepare_images(fake_images.detach(), opts)
-
-            # ------------------------------------------------------------------
-            # TODO 1.4 – compute D_fake_loss using fake_images_processed.
-            # ------------------------------------------------------------------
-            D_fake_loss = None  # TODO
+            D_fake_loss = (D(fake_images_processed) ** 2).mean()
 
             # 5. Total discriminator loss and update step.
             D_total_loss = (D_real_loss + D_fake_loss) / 2
@@ -195,28 +230,27 @@ def training_loop(train_dataloader, opts):
             # ==============================================================
 
             # 1. Sample a fresh batch of noise vectors z.
-            # ------------------------------------------------------------------
-            # TODO 1.4 – sample new noise. Do not reuse the discriminator noise.
-            # ------------------------------------------------------------------
-            noise = None  # TODO
+            noise = sample_noise(batch_size, opts.noise_size)
 
             # 2. Generate fake images G(z).
-            # ------------------------------------------------------------------
-            # TODO 1.4 – generate fake_images from the noise.
-            # ------------------------------------------------------------------
-            fake_images = None  # TODO
+            fake_images = G(noise)
 
             # 3. Generator loss: (D(G(z)) - 1)^2
             fake_images_processed = prepare_images(fake_images, opts)
-
-            # ------------------------------------------------------------------
-            # TODO 1.4 – compute G_loss using fake_images_processed.
-            # ------------------------------------------------------------------
-            G_loss = None  # TODO
+            G_loss = ((D(fake_images_processed) - 1) ** 2).mean()
 
             g_optimizer.zero_grad()
             G_loss.backward()
             g_optimizer.step()
+
+            if G_ema is not None:
+                with torch.no_grad():
+                    for p, p_ema in zip(G.parameters(), G_ema.parameters()):
+                        p_ema.data.mul_(opts.ema_decay).add_(
+                            p.data, alpha=1 - opts.ema_decay
+                        )
+                    for b, b_ema in zip(G.buffers(), G_ema.buffers()):
+                        b_ema.data.copy_(b.data)
 
             # ==============================================================
             # Logging
@@ -230,25 +264,22 @@ def training_loop(train_dataloader, opts):
                     f'G: {G_loss.item():.4f}'
                 )
 
-                # ----------------------------------------------------------
-                # TODO 1.6 – log the scalar losses to W&B.
-                # Log the real/fake discriminator losses, total discriminator
-                # loss, and generator loss.
-                # ----------------------------------------------------------
-                pass
+                wandb.log({
+                    'D_real': D_real_loss.item(),
+                    'D_fake': D_fake_loss.item(),
+                    'D_total': D_total_loss.item(),
+                    'G': G_loss.item(),
+                }, step=iteration)
 
             if iteration % opts.sample_every == 0:
-                save_samples(G, fixed_noise, iteration, opts)
+                save_samples(G, fixed_noise, iteration, opts, G_ema=G_ema)
 
             if iteration % opts.checkpoint_every == 0:
                 checkpoint(iteration, G, D, opts)
 
             iteration += 1
 
-    # ------------------------------------------------------------------
-    # TODO 1.6 – finish the W&B run.
-    # ------------------------------------------------------------------
-    pass
+    wandb.finish()
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -290,6 +321,13 @@ def create_parser():
     parser.add_argument('--sample_every',     type=int, default=200)
     parser.add_argument('--checkpoint_every', type=int, default=400)
 
+    # Bonus
+    parser.add_argument('--init_type', type=str, default='naive',
+                        choices=['naive', 'dcgan'])
+    parser.add_argument('--leaky_d',   action='store_true')
+    parser.add_argument('--ema',       action='store_true')
+    parser.add_argument('--ema_decay', type=float, default=0.999)
+
     return parser
 
 
@@ -303,6 +341,12 @@ if __name__ == '__main__':
     )
     if opts.use_diffaug:
         opts.sample_dir += '_diffaug'
+    if opts.init_type != 'naive':
+        opts.sample_dir += f'_{opts.init_type}'
+    if opts.leaky_d:
+        opts.sample_dir += '_leaky'
+    if opts.ema:
+        opts.sample_dir += '_ema'
 
     if os.path.exists(opts.sample_dir):
         os.system(f'rm {opts.sample_dir}/*')
