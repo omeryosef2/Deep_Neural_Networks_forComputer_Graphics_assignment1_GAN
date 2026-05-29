@@ -81,8 +81,8 @@ def checkpoint(iteration, G, D, opts):
 
 def to_uint8_grid(images):
     """Convert (N, C, H, W) tensor/array with values in [-1,1] to uint8 grid."""
-    arr = utils.to_data(images)
-    grid = create_image_grid(arr)
+    arr = utils.to_data(images)          # -> numpy (N, C, H, W)
+    grid = create_image_grid(arr)        # -> (H, W, C) in [-1, 1]
     return np.uint8(255 * (grid + 1) / 2)
 
 
@@ -94,7 +94,10 @@ def save_samples(G, fixed_noise, iteration, opts):
     imageio.imwrite(path, grid)
     print(f'Saved {path}')
 
-    wandb.log({'samples': wandb.Image(grid)}, step=iteration)
+    # ------------------------------------------------------------------
+    # TODO 1.6 – log the generated image grid to W&B.
+    # ------------------------------------------------------------------
+    pass
 
 
 def sample_noise(batch_size, dim):
@@ -109,9 +112,12 @@ def sample_noise(batch_size, dim):
 # ---------------------------------------------------------------------------
 
 def prepare_images(images, opts):
-    """Apply DiffAugment when --use_diffaug is set, otherwise return as-is."""
-    if opts.use_diffaug:
-        return DiffAugment(images, policy=policy)
+    """Prepare images before they are passed to the discriminator.
+
+    TODO 1.5:
+    Complete this function according to the DiffAugment instructions
+    in the assignment.
+    """
     return images
 
 
@@ -129,11 +135,10 @@ def training_loop(train_dataloader, opts):
 
     fixed_noise = sample_noise(opts.batch_size, opts.noise_size)
 
-    wandb.init(
-        project='assignment1-dcgan',
-        name=f'dcgan_diffaug-{opts.use_diffaug}',
-        config=vars(opts),
-    )
+    # ------------------------------------------------------------------
+    # TODO 1.6 – initialize a W&B run.
+    # Include the command-line options in the run config.
+    # ------------------------------------------------------------------
 
     iteration = 1
     total_train_iters = opts.num_epochs * len(train_dataloader)
@@ -149,13 +154,23 @@ def training_loop(train_dataloader, opts):
 
             # 1. Discriminator loss on real images: (D(x) - 1)^2
             real_images_processed = prepare_images(real_images, opts)
-            D_real_loss = ((D(real_images_processed) - 1) ** 2).mean()
+
+            # ------------------------------------------------------------------
+            # TODO 1.4 – compute D_real_loss using real_images_processed.
+            # ------------------------------------------------------------------
+            D_real_loss = None  # TODO
 
             # 2. Sample a batch of noise vectors z.
-            noise = sample_noise(real_images.size(0), opts.noise_size)
+            # ------------------------------------------------------------------
+            # TODO 1.4 – sample noise.
+            # ------------------------------------------------------------------
+            noise = None  # TODO
 
             # 3. Generate fake images G(z).
-            fake_images = G(noise)
+            # ------------------------------------------------------------------
+            # TODO 1.4 – generate fake_images from the noise.
+            # ------------------------------------------------------------------
+            fake_images = None  # TODO
 
             # 4. Discriminator loss on fake images: (D(G(z)))^2
             # Note:
@@ -163,7 +178,11 @@ def training_loop(train_dataloader, opts):
             # update do not flow back into the generator parameters.
 
             fake_images_processed = prepare_images(fake_images.detach(), opts)
-            D_fake_loss = (D(fake_images_processed) ** 2).mean()
+
+            # ------------------------------------------------------------------
+            # TODO 1.4 – compute D_fake_loss using fake_images_processed.
+            # ------------------------------------------------------------------
+            D_fake_loss = None  # TODO
 
             # 5. Total discriminator loss and update step.
             D_total_loss = (D_real_loss + D_fake_loss) / 2
@@ -176,14 +195,24 @@ def training_loop(train_dataloader, opts):
             # ==============================================================
 
             # 1. Sample a fresh batch of noise vectors z.
-            noise = sample_noise(real_images.size(0), opts.noise_size)
+            # ------------------------------------------------------------------
+            # TODO 1.4 – sample new noise. Do not reuse the discriminator noise.
+            # ------------------------------------------------------------------
+            noise = None  # TODO
 
             # 2. Generate fake images G(z).
-            fake_images = G(noise)
+            # ------------------------------------------------------------------
+            # TODO 1.4 – generate fake_images from the noise.
+            # ------------------------------------------------------------------
+            fake_images = None  # TODO
 
             # 3. Generator loss: (D(G(z)) - 1)^2
             fake_images_processed = prepare_images(fake_images, opts)
-            G_loss = ((D(fake_images_processed) - 1) ** 2).mean()
+
+            # ------------------------------------------------------------------
+            # TODO 1.4 – compute G_loss using fake_images_processed.
+            # ------------------------------------------------------------------
+            G_loss = None  # TODO
 
             g_optimizer.zero_grad()
             G_loss.backward()
@@ -201,12 +230,12 @@ def training_loop(train_dataloader, opts):
                     f'G: {G_loss.item():.4f}'
                 )
 
-                wandb.log({
-                    'D/real_loss':  D_real_loss.item(),
-                    'D/fake_loss':  D_fake_loss.item(),
-                    'D/total_loss': D_total_loss.item(),
-                    'G/loss':       G_loss.item(),
-                }, step=iteration)
+                # ----------------------------------------------------------
+                # TODO 1.6 – log the scalar losses to W&B.
+                # Log the real/fake discriminator losses, total discriminator
+                # loss, and generator loss.
+                # ----------------------------------------------------------
+                pass
 
             if iteration % opts.sample_every == 0:
                 save_samples(G, fixed_noise, iteration, opts)
@@ -216,7 +245,10 @@ def training_loop(train_dataloader, opts):
 
             iteration += 1
 
-    wandb.finish()
+    # ------------------------------------------------------------------
+    # TODO 1.6 – finish the W&B run.
+    # ------------------------------------------------------------------
+    pass
 
 # ---------------------------------------------------------------------------
 # Entry point

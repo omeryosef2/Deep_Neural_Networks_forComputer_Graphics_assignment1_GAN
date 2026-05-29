@@ -94,12 +94,16 @@ class DCDiscriminator(nn.Module):
     def __init__(self, conv_dim=64, norm='instance'):
         super().__init__()
 
-        self.conv1 = conv(3,             conv_dim // 2, kernel_size=4, norm=norm, activ='relu')
-        self.conv2 = conv(conv_dim // 2, conv_dim,      kernel_size=4, norm=norm, activ='relu')
-        self.conv3 = conv(conv_dim,      conv_dim * 2,  kernel_size=4, norm=norm, activ='relu')
-        self.conv4 = conv(conv_dim * 2,  conv_dim * 4,  kernel_size=4, norm=norm, activ='relu')
-        self.conv5 = conv(conv_dim * 4,  1, kernel_size=4, stride=1, padding=0,
-                          norm=None, activ=None)
+
+        # ---------------------------------------------------------------
+        # TODO 1.2b – define conv2 through conv5.
+        # ---------------------------------------------------------------
+
+        self.conv1 = None
+        self.conv2 = None
+        self.conv3 = None
+        self.conv4 = None
+        self.conv5 = None
 
     def forward(self, x):
         """
@@ -111,12 +115,11 @@ class DCDiscriminator(nn.Module):
         ------
             out: (BS, 1, 1, 1)  scalar score per image
         """
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.conv4(out)
-        out = self.conv5(out)
-        return out
+
+        # ---------------------------------------------------------------
+        # TODO 1.2b - implement the forward pass.
+        # ---------------------------------------------------------------
+        pass
 
 class DCGenerator(nn.Module):
     """Generator: maps a noise vector z -> 64x64 RGB image.
@@ -132,21 +135,23 @@ class DCGenerator(nn.Module):
     def __init__(self, noise_size, conv_dim=64):
         super().__init__()
 
-        self.up_conv1 = up_conv(noise_size,   conv_dim * 4, kernel_size=4,
-                                stride=1, padding=3, scale_factor=1,
-                                norm='instance', activ='relu')
+        # ---------------------------------------------------------------
+        # TODO 1.3 – define the five up_conv layers.
+        #
+        # Hint for up_conv1: you need to go from (noise_size x 1 x 1) to
+        # (256 x 4 x 4) WITHOUT an upsample step.  Pass scale_factor=1
+        # to up_conv and choose kernel_size and padding accordingly.
+        # ---------------------------------------------------------------
 
-        self.up_conv2 = up_conv(conv_dim * 4, conv_dim * 2, kernel_size=3,
-                                norm='instance', activ='relu')
+        self.up_conv1 = None
 
-        self.up_conv3 = up_conv(conv_dim * 2, conv_dim,     kernel_size=3,
-                                norm='instance', activ='relu')
+        self.up_conv2 = None
 
-        self.up_conv4 = up_conv(conv_dim,     conv_dim // 2, kernel_size=3,
-                                norm='instance', activ='relu')
+        self.up_conv3 = None
 
-        self.up_conv5 = up_conv(conv_dim // 2, 3, kernel_size=3,
-                                norm=None, activ='tanh')
+        self.up_conv4 = None
+
+        self.up_conv5 = None
 
     def forward(self, z):
         """
@@ -158,12 +163,10 @@ class DCGenerator(nn.Module):
         ------
             out: (BS, channels, image_width, image_height)
         """
-        out = self.up_conv1(z)
-        out = self.up_conv2(out)
-        out = self.up_conv3(out)
-        out = self.up_conv4(out)
-        out = self.up_conv5(out)
-        return out
+        # ---------------------------------------------------------------
+        # TODO 1.3 – implement the forward pass.
+        # ---------------------------------------------------------------
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -187,26 +190,24 @@ class CycleGenerator(nn.Module):
     def __init__(self, conv_dim=64, init_zero_weights=False, norm='instance'):
         super().__init__()
 
+        # ---------------------------------------------------------------
+        # TODO 2.1 – define the encoder, transform, and decoder layers.
+        #
+        # Use conv() for the encoder, ResnetBlock for the transform
+        # (you can stack multiple with nn.Sequential), and up_conv()
+        # for the decoder.  Match the channel sizes in the docstring.
+        # ---------------------------------------------------------------
+
         # Encoder
-        self.conv1 = conv(3,             conv_dim // 2, kernel_size=4,
-                          norm=norm, activ='relu',
-                          init_zero_weights=init_zero_weights)
-        self.conv2 = conv(conv_dim // 2, conv_dim,      kernel_size=4,
-                          norm=norm, activ='relu',
-                          init_zero_weights=init_zero_weights)
+        self.conv1 = None
+        self.conv2 = None
 
         # Transform (3 residual blocks)
-        self.resnet_block = nn.Sequential(
-            ResnetBlock(conv_dim, norm=norm, activ='relu'),
-            ResnetBlock(conv_dim, norm=norm, activ='relu'),
-            ResnetBlock(conv_dim, norm=norm, activ='relu'),
-        )
+        self.resnet_block = None
 
         # Decoder
-        self.up_conv1 = up_conv(conv_dim,      conv_dim // 2, kernel_size=3,
-                                norm=norm, activ='relu')
-        self.up_conv2 = up_conv(conv_dim // 2, 3, kernel_size=3,
-                                norm=None, activ='tanh')
+        self.up_conv1 = None
+        self.up_conv2 = None
 
     def forward(self, x):
         """
@@ -218,12 +219,10 @@ class CycleGenerator(nn.Module):
         ------
             out: (BS, 3, 64, 64)
         """
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.resnet_block(out)
-        out = self.up_conv1(out)
-        out = self.up_conv2(out)
-        return out
+        # ---------------------------------------------------------------
+        # TODO 2.1 – pass x through encoder -> resnet_block -> decoder.
+        # ---------------------------------------------------------------
+        pass
 
 
 class PatchDiscriminator(nn.Module):
@@ -239,10 +238,15 @@ class PatchDiscriminator(nn.Module):
     def __init__(self, conv_dim=64, norm='instance'):
         super().__init__()
 
-        self.conv1 = conv(3,             conv_dim // 2, kernel_size=4, norm=norm, activ='relu')
-        self.conv2 = conv(conv_dim // 2, conv_dim,      kernel_size=4, norm=norm, activ='relu')
-        self.conv3 = conv(conv_dim,      conv_dim * 2,  kernel_size=4, norm=norm, activ='relu')
-        self.conv4 = conv(conv_dim * 2,  1,             kernel_size=4, norm=None, activ=None)
+        # ---------------------------------------------------------------
+        # TODO 2.2 – define the layers.
+        # Target output shape for a 64x64 input: (BS, 1, 4, 4).
+        # ---------------------------------------------------------------
+        self.conv1 = None
+        self.conv2 = None
+        self.conv3 = None
+        self.conv4 = None
+        self.conv5 = None
 
     def forward(self, x):
         """
@@ -254,11 +258,10 @@ class PatchDiscriminator(nn.Module):
         ------
             out: (BS, 1, 4, 4)  patch-level scores
         """
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.conv4(out)
-        return out
+        # ---------------------------------------------------------------
+        # TODO 2.2 – forward pass through your layers.
+        # ---------------------------------------------------------------
+        pass
 
 
 # ---------------------------------------------------------------------------

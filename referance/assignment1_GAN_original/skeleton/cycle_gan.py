@@ -7,7 +7,6 @@
 
 import argparse
 import os
-import random
 
 import imageio
 import numpy as np
@@ -28,38 +27,6 @@ np.random.seed(SEED)
 torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
-
-
-class ImagePool:
-    """Keeps a buffer of past generated images and samples from it."""
-
-    def __init__(self, pool_size):
-        self.pool_size = pool_size
-        self.images = []
-
-    def query(self, images):
-        if self.pool_size == 0:
-            return images
-        result = []
-        for image in images:
-            image = image.unsqueeze(0)
-            if len(self.images) < self.pool_size:
-                self.images.append(image)
-                result.append(image)
-            elif random.random() > 0.5:
-                i = random.randint(0, self.pool_size - 1)
-                result.append(self.images[i])
-                self.images[i] = image
-            else:
-                result.append(image)
-        return torch.cat(result, dim=0)
-
-
-def prepare_images(images, opts):
-    """Apply DiffAugment when --use_diffaug is set, otherwise return as-is."""
-    if opts.use_diffaug:
-        return DiffAugment(images, policy=policy)
-    return images
 
 
 def print_models(G_XtoY, G_YtoX, D_X, D_Y):
@@ -158,7 +125,10 @@ def save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts):
     merged = np.uint8(255 * (merged + 1) / 2)
     imageio.imwrite(path, merged)
     print('Saved {}'.format(path))
-    wandb.log({'samples/X_to_Y': wandb.Image(merged)}, step=iteration)
+    # ------------------------------------------------------------------
+    # TODO 2.5 – log this image grid to W&B
+    # ------------------------------------------------------------------
+    pass
 
     merged = merge_images(Y, fake_X, opts)
     path = os.path.join(
@@ -167,7 +137,10 @@ def save_samples(iteration, fixed_Y, fixed_X, G_YtoX, G_XtoY, opts):
     merged = np.uint8(255 * (merged + 1) / 2)
     imageio.imwrite(path, merged)
     print('Saved {}'.format(path))
-    wandb.log({'samples/Y_to_X': wandb.Image(merged)}, step=iteration)
+    # ------------------------------------------------------------------
+    # TODO 2.5 – log this image grid to W&B
+    # ------------------------------------------------------------------
+    pass
 
 
 def training_loop(dataloader_X, dataloader_Y, opts):
@@ -196,15 +169,10 @@ def training_loop(dataloader_X, dataloader_Y, opts):
 
     iter_per_epoch = min(len(iter_X), len(iter_Y))
 
-    pool_X = ImagePool(opts.buffer_size if opts.use_image_buffer else 0)
-    pool_Y = ImagePool(opts.buffer_size if opts.use_image_buffer else 0)
-
-    wandb.init(
-        project='assignment1-cyclegan',
-        name=f'cyclegan_X-{os.path.basename(opts.X)}_Y-{os.path.basename(opts.Y)}'
-             f'_cycle-{opts.use_cycle_consistency_loss}',
-        config=vars(opts),
-    )
+    # ------------------------------------------------------------------
+    # TODO 2.5 – initialise a W&B run for this training job
+    # ------------------------------------------------------------------
+    pass
 
     for iteration in range(1, opts.train_iters + 1):
 
@@ -220,27 +188,27 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         images_Y = utils.to_var(images_Y)
 
         # TRAIN THE DISCRIMINATORS
+        # ------------------------------------------------------------------
+        # TODO 2.3
+        # ------------------------------------------------------------------
         # 1. Compute the discriminator losses on real images
-        D_X_real_loss = ((D_X(prepare_images(images_X, opts)) - 1) ** 2).mean()
-        D_Y_real_loss = ((D_Y(prepare_images(images_Y, opts)) - 1) ** 2).mean()
+        D_X_loss = None
+        D_Y_loss = None
 
-        d_real_loss = D_X_real_loss + D_Y_real_loss
+        d_real_loss = D_X_loss + D_Y_loss
 
         # 2. Generate domain-X-like images based on real images in domain Y
-        fake_X = G_YtoX(images_Y).detach()
-        fake_X = pool_X.query(fake_X)
+        fake_X = None
 
         # 3. Compute the loss for D_X
-        D_X_fake_loss = (D_X(prepare_images(fake_X, opts)) ** 2).mean()
+        D_X_loss = None
 
         # 4. Generate domain-Y-like images based on real images in domain X
-        fake_Y = G_XtoY(images_X).detach()
-        fake_Y = pool_Y.query(fake_Y)
 
         # 5. Compute the loss for D_Y
-        D_Y_fake_loss = (D_Y(prepare_images(fake_Y, opts)) ** 2).mean()
+        D_Y_loss = None
 
-        d_fake_loss = D_X_fake_loss + D_Y_fake_loss
+        d_fake_loss = D_X_loss + D_Y_loss
 
         # sum up the losses and update D_X and D_Y
         d_optimizer.zero_grad()
@@ -248,41 +216,67 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         d_total_loss.backward()
         d_optimizer.step()
 
+        # ------------------------------------------------------------------
+        # TODO 2.5 – log discriminator losses to W&B
+        # ------------------------------------------------------------------
+        pass
+
         # TRAIN THE GENERATORS
+        # ------------------------------------------------------------------
+        # TODO 2.3
+        # ------------------------------------------------------------------
         # 1. Generate domain-X-like images based on real images in domain Y
-        fake_X = G_YtoX(images_Y)
+        fake_X = None
 
         # 2. Compute the generator loss based on domain X
-        g_yx_loss = ((D_X(prepare_images(fake_X, opts)) - 1) ** 2).mean()
+        g_loss = None
 
-        cycle_yxy_loss = None
+        # ------------------------------------------------------------------
+        # TODO 2.5 – log generator losses to W&B
+        # ------------------------------------------------------------------
+        pass
+
         if opts.use_cycle_consistency_loss:
+            # ------------------------------------------------------------------
+            # TODO 2.4
+            # ------------------------------------------------------------------
             # 3. Cycle consistency loss
-            cycle_yxy_loss = (images_Y - G_XtoY(fake_X)).abs().mean()
+            cycle_consistency_loss = None
 
+            g_loss += opts.lambda_cycle * cycle_consistency_loss
+
+            # ------------------------------------------------------------------
+            # TODO 2.5 – log to W&B
+            # ------------------------------------------------------------------
+            pass
+
+        # ------------------------------------------------------------------
+        # TODO 2.3
+        # ------------------------------------------------------------------
         # 4. Generate domain-Y-like images based on real images in domain X
-        fake_Y = G_XtoY(images_X)
+        fake_Y = None
 
         # 5. Compute the generator loss based on domain Y
-        g_xy_loss = ((D_Y(prepare_images(fake_Y, opts)) - 1) ** 2).mean()
+        g_loss += None
 
-        cycle_xyx_loss = None
+        # ------------------------------------------------------------------
+        # TODO 2.5 – log generator losses to W&B
+        # ------------------------------------------------------------------
+        pass
+
         if opts.use_cycle_consistency_loss:
+            # ------------------------------------------------------------------
+            # TODO 2.4
+            # ------------------------------------------------------------------
             # 6. Cycle consistency loss
-            cycle_xyx_loss = (images_X - G_YtoX(fake_Y)).abs().mean()
+            cycle_consistency_loss = None
 
-        g_loss = g_yx_loss + g_xy_loss
-        if cycle_yxy_loss is not None:
-            g_loss = g_loss + opts.lambda_cycle * cycle_yxy_loss
-        if cycle_xyx_loss is not None:
-            g_loss = g_loss + opts.lambda_cycle * cycle_xyx_loss
+            g_loss += opts.lambda_cycle * cycle_consistency_loss
 
-        id_x_loss = None
-        id_y_loss = None
-        if opts.use_identity_loss:
-            id_y_loss = (G_XtoY(images_Y) - images_Y).abs().mean()
-            id_x_loss = (G_YtoX(images_X) - images_X).abs().mean()
-            g_loss = g_loss + opts.lambda_identity * (id_x_loss + id_y_loss)
+            # ------------------------------------------------------------------
+            # TODO 2.5 – log to W&B
+            # ------------------------------------------------------------------
+            pass
 
         # backprop the aggregated g losses and update G_XtoY and G_YtoX
         g_optimizer.zero_grad()
@@ -293,28 +287,17 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         if iteration % opts.log_step == 0:
             print(
                 'Iteration [{:5d}/{:5d}] | d_real_loss: {:6.4f} | '
+                'd_Y_loss: {:6.4f} | d_X_loss: {:6.4f} | '
                 'd_fake_loss: {:6.4f} | g_loss: {:6.4f}'.format(
-                    iteration, opts.train_iters,
-                    d_real_loss.item(), d_fake_loss.item(), g_loss.item()
+                    iteration, opts.train_iters, d_real_loss.item(),
+                    D_Y_loss.item(), D_X_loss.item(),
+                    d_fake_loss.item(), g_loss.item()
                 )
             )
-
-            log_dict = {
-                'D/real_loss':  d_real_loss.item(),
-                'D/fake_loss':  d_fake_loss.item(),
-                'D/total_loss': d_total_loss.item(),
-                'G/yx_loss':    g_yx_loss.item(),
-                'G/xy_loss':    g_xy_loss.item(),
-                'G/total_loss': g_loss.item(),
-            }
-            if cycle_yxy_loss is not None:
-                log_dict['cycle/yxy_loss'] = cycle_yxy_loss.item()
-            if cycle_xyx_loss is not None:
-                log_dict['cycle/xyx_loss'] = cycle_xyx_loss.item()
-            if id_x_loss is not None:
-                log_dict['identity/x_loss'] = id_x_loss.item()
-                log_dict['identity/y_loss'] = id_y_loss.item()
-            wandb.log(log_dict, step=iteration)
+            # ------------------------------------------------------------------
+            # TODO 2.5 – log scalars to W&B
+            # ------------------------------------------------------------------
+            pass
 
         # Save the generated samples
         if iteration % opts.sample_every == 0:
@@ -324,7 +307,10 @@ def training_loop(dataloader_X, dataloader_Y, opts):
         if iteration % opts.checkpoint_every == 0:
             checkpoint(iteration, G_XtoY, G_YtoX, D_X, D_Y, opts)
 
-    wandb.finish()
+    # ------------------------------------------------------------------
+    # TODO 2.5 – finish the W&B run
+    # ------------------------------------------------------------------
+    pass
 
 
 def main(opts):
@@ -392,11 +378,6 @@ def create_parser():
     parser.add_argument('--sample_every', type=int, default=100)
     parser.add_argument('--checkpoint_every', type=int, default=800)
 
-    parser.add_argument('--use_identity_loss', action='store_true')
-    parser.add_argument('--lambda_identity',   type=float, default=5.0)
-    parser.add_argument('--use_image_buffer',  action='store_true')
-    parser.add_argument('--buffer_size',       type=int,   default=50)
-
     return parser
 
 
@@ -412,10 +393,6 @@ if __name__ == '__main__':
     )
     if opts.use_cycle_consistency_loss:
         opts.sample_dir += '_cycle'
-    if opts.use_identity_loss:
-        opts.sample_dir += '_identity'
-    if opts.use_image_buffer:
-        opts.sample_dir += '_pool'
     if opts.use_diffaug:
         opts.sample_dir += '_diffaug'
 
